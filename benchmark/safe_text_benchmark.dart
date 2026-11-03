@@ -42,6 +42,18 @@ void main() async {
         () => SafeTextFilter.filterText(text: longText));
   }
 
+  // Chinese text exercises the separator-tolerant pass. Plain, non-offensive
+  // sentences are enough to measure it: the pass runs on any Han text.
+  SafeTextFilter.init(language: Language.chinese);
+  const chineseText = '今天天气不错，我们去公园散步，顺便买点水果回家，晚上一起吃饭。';
+  const chineseSpaced = '今天 天气 不 错，我们 去 公园 散步，顺便 买点 水果 回家。';
+  _report('filterText chinese', 20000,
+      () => SafeTextFilter.filterText(text: chineseText));
+  _report('filterText chinese spaced', 20000,
+      () => SafeTextFilter.filterText(text: chineseSpaced));
+  _report('containsBadWord chinese', 20000,
+      () => SafeTextFilter.containsBadWord(text: chineseText));
+
   // A messy chat message: numbers, number words, multipliers and separators.
   const complexChat = 'Order #4521 for 3 items (2 large, 1 small) at 7:45pm, '
       'call me on nine eight seven double six 5-4-3 or +1 (555) 012-3456, '

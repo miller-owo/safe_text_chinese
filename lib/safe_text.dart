@@ -2,6 +2,11 @@ export 'src/models/language.dart';
 export 'src/models/mask_strategy.dart';
 export 'src/safe_text_filter.dart';
 export 'src/phone_number_checker.dart';
+export 'src/word_list_import.dart';
+// File-system loading only exists where `dart:io` does; the web gets a stub
+// that explains how to load the text itself.
+export 'src/word_list_loader_stub.dart'
+    if (dart.library.io) 'src/word_list_loader_io.dart';
 
 // Maintaining backwards compatibility by redirecting original `SafeText` to the new implementations
 import 'src/models/mask_strategy.dart';

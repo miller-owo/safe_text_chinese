@@ -32,6 +32,8 @@ A high-performance pure Dart package for filtering offensive language (profanity
   - [`SafeTextFilter.filterText`](#safetextfilterfiltertext)
   - [`SafeTextFilter.containsBadWord`](#safetextfiltercontainsbadword)
   - [`PhoneNumberChecker.containsPhoneNumber`](#phonenumbercheckercontainsphonenumber)
+- [Chinese & CJK text](#chinese--cjk-text)
+- [Importing word lists](#importing-word-lists)
 - [Supported Languages](#supported-languages)
 - [How it Works](#how-it-works)
 - [Migrating from v1.x](#migrating-from-v1x)
@@ -47,6 +49,7 @@ A high-performance pure Dart package for filtering offensive language (profanity
 
 - Scans thousands of bad words in a single pass of the input text.
 - Catches common character substitutions: `@→a`, `4→a`, `3→e`, `0→o`, `$→s`, and more.
+- Built for Chinese and other CJK text — no spaces required, tolerant of characters split by spaces or symbols (`坏*词`), full-width input folded onto ASCII, and single-character entries kept strict so they don't fire everywhere.
 - Detects phone numbers in digits, words, mixed formats, and multiplier words (e.g., "triple five").
 - Multiple masking strategies — full (`******`), partial (`f**k`), or custom replacement (`[censored]`).
 - Customizable — add your own words or exclude specific phrases.
@@ -68,7 +71,7 @@ Or manually add it to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  safe_text: ^3.1.0
+  safe_text: ^3.2.0
 ```
 
 Then run:
@@ -281,6 +284,164 @@ bool hasPhone = await PhoneNumberChecker.containsPhoneNumber(
 
 ---
 
+## Chinese & CJK text
+
+Chinese, Japanese and Korean are written without spaces between words. A
+boundary rule built for Latin text ("a letter touching the match means it is
+part of a longer word" — what keeps `ass` out of `class`) rejects almost every
+real Chinese sentence, because the phrase is surrounded by Han characters, and
+Han characters are letters.
+
+As of 3.2.0 the filter treats the spaceless scripts correctly:
+
+- **No spaces needed.** Han, kana and Hangul characters never block a match, so a
+  bundled phrase is found in the middle of an ordinary sentence.
+- **Single characters stay strict.** A one-character entry only matches when a
+  space or punctuation delimits it — otherwise every occurrence of that
+  character inside a longer word would be flagged.
+- **Separators are tolerated.** A phrase of two or more characters is also
+  matched when its characters are split by spaces, symbols, emoji or zero-width
+  characters. A match never bridges a clause boundary (`。，！？…`, a line break)
+  and is given up when the filler is longer than the phrase, so two unrelated
+  clauses are never stitched together.
+- **Full-width input works.** `ｆ`, `４`, `＠` are folded onto ASCII before
+  matching, so text typed with a Chinese IME is caught like Latin input.
+
+```dart
+import 'package:safe_text/safe_text.dart';
+
+SafeTextFilter.init(language: Language.chinese);
+
+const testWord = '测试词甲';
+
+// Found in the middle of a sentence — no spaces around it.
+SafeTextFilter.filterText(
+  text: '这句话里有$testWord，你看到了吗',
+  extraWords: [testWord],
+  useDefaultWords: false,
+); // '这句话里有****，你看到了吗'
+
+// Found even when the writer separates the characters.
+SafeTextFilter.filterText(
+  text: '这句话里有测 试 词 甲，你看到了吗',
+  extraWords: [testWord],
+  useDefaultWords: false,
+); // '这句话里有*******，你看到了吗'
+```
+
+Separator tolerance is on by default and can be switched off globally:
+
+```dart
+SafeTextFilter.tolerateCjkSeparators = false; // exact, contiguous matches only
+```
+
+> The masking symbol replaces the whole span, including any separator that was
+> skipped, so nothing of the phrase is left behind.
+
+---
+
+## Importing word lists
+
+Bring your own entries as plain text, one per line. Point the filter at a folder
+and **every `*.txt` inside it is blocked** — `AAA.txt`, `BBB.txt`, `CCC.txt`, …
+No categories, no metadata, no per-file wiring.
+
+`dist/AAA.txt`:
+
+```text
+# Comments start with # or //
+AAA
+BBB
+CCC  # an inline comment after whitespace is dropped too
+```
+
+One call loads the folder and initializes the filter:
+
+```dart
+import 'package:safe_text/safe_text.dart';
+
+// dist/*.txt + the bundled English list — the default.
+final import = await initFromWordLists('dist');
+
+// Another bundled list instead of English:
+final import = await initFromWordLists('dist', language: Language.chinese);
+
+// Your folder alone, without any bundled list:
+final import = await initFromWordLists('dist', includeBundledWords: false);
+
+print(import); // WordListImport(3 files, 1234 words)
+```
+
+With no `language`/`languages` argument the bundled list is `Language.english`,
+exactly as in `SafeTextFilter.init`.
+
+Prefer the two steps separately when you want to look at the import first:
+
+```dart
+final import = await loadWordLists('dist'); // same as ./dist/*.txt
+print(import); // WordListImport(3 files, 1234 words)
+
+for (final file in import.files) {
+  print(file); // dist/AAA.txt: 3 entries
+}
+for (final warning in import.warnings) {
+  print(warning); // dist/AAA.txt:12: entry is 88 characters long …
+}
+
+SafeTextFilter.init(
+  language: Language.chinese,
+  additionalWords: import.words,
+);
+```
+
+`loadWordLists` also accepts a single file, a `dist/*.txt` pattern, or a list
+mixing folders and files.
+
+Format rules:
+
+- **UTF-8**, with or without a byte-order mark. A file saved as GBK fails with a
+  clear error instead of importing mojibake.
+- One entry per line; surrounding whitespace is trimmed and blank lines are
+  ignored.
+- `#` or `//` at the start of a line is a comment. After whitespace it ends the
+  entry (`CCC # note`), while `c#` and `http://…` are kept intact. Pass
+  `allowInlineComments: false` to keep everything.
+- Duplicates are dropped case-insensitively across all files;
+  `import.duplicates` counts them.
+- **Warnings never quote an entry.** They point at a file and a line number, so
+  the output is safe to paste into an issue or a CI log.
+- `import.files` reports per-file counts, and `import.isEmpty` is true when
+  nothing was read — check it rather than shipping a filter with no entries.
+
+Options: `extension` (default `'.txt'`), `recursive` (default `false`),
+`allowInlineComments` (default `true`), `maxEntryRunes` (default `64`).
+
+Imported entries go through the same matcher as bundled ones, so they get
+leet-speak handling, full-width folding and the CJK rules described above.
+
+Check a folder before wiring it in — it prints counts only:
+
+```bash
+dart run tool/check_word_lists.dart dist
+```
+
+> **Web:** there is no file system, so `loadWordLists` throws
+> `UnsupportedError` there. Load the text yourself and merge it:
+>
+> ```dart
+> final text = await rootBundle.loadString('assets/words.txt');
+> final import = WordListImport.merge({'assets/words.txt': text});
+> ```
+>
+> **Flutter apps** need the same treatment: a `dist/` folder in your repository
+> is not part of the shipped bundle. Register the lists as assets (`pubspec.yaml`
+> → `flutter: assets:`) and read them with `rootBundle`. On desktop and CLI
+> targets you can also keep `dist/` next to the executable and call
+> `initFromWordLists`. On non-web platforms `initFromWordLists` itself is
+> available either way — it is only the path that has to exist at runtime.
+
+---
+
 ## Supported Languages
 
 Pass any of these `Language` enum values to `SafeTextFilter.init`. Use `Language.all` to load every language simultaneously.
@@ -390,6 +551,8 @@ Input text  ──► [Normalizer] ──► [Aho-Corasick FSA] ──► Match 
 
 Leet-speak normalization only applies to plain-letter entries, so `f@ck` and `fvck` match `fuck`. Entries that themselves contain digits or symbols (e.g. `2g1c`, or Arabizi words like `3ars` where digits stand for Arabic letters) are matched exactly as written in a second, smaller trie, so they never turn ordinary words like `ears` into matches.
 
+Chinese text takes one extra step. When the input contains Han characters, a second copy with the gap characters (spaces, symbols, emoji, zero-width characters) removed is scanned too, and each match is mapped back onto the original text before masking. That is what catches `坏 词` and `坏*词` without ever letting the matcher jump across a full stop.
+
 ---
 
 ## Migrating from v1.x
@@ -424,6 +587,9 @@ bool bad = SafeTextFilter.containsBadWord(text: "some input");
 
 - **Skipping `init` is not behavior-preserving across major versions.** An uninitialized filter now lazily loads the full `Language.english` list (~13k words); in 2.x, an uninitialized filter fell back to the small legacy `constants/badwords.dart` list (~1.7k words) instead. If you're upgrading from 2.x, see [Keeping the legacy word list](#keeping-the-legacy-word-list).
 - **Phone number detection is English-word based.** Words like "nine", "triple", etc. are English only — the detector does not parse written numbers in other languages.
+- **Short Chinese entries can over-match.** Chinese is written without spaces, so a two-character entry is matched wherever it appears, including inside a longer word that happens to contain it. Use `excludedWords` to suppress a known false positive.
+- **Simplified and traditional spellings are separate entries.** The bundled list does not convert between them; add the variant you need through `extraWords`.
+- **Separator tolerance stops at a clause boundary.** A phrase split by `。`, `，`, `！`, `？` or a line break is deliberately not merged back together, so a writer who inserts those characters in the middle of a word will get through.
 - **False positives on technical terms.** Short words in the filter list may match substrings of unrelated technical terms. Use `excludedWords` to suppress known false positives.
 
 ---

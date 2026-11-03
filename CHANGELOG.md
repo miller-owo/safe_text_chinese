@@ -1,3 +1,21 @@
+## 3.2.0
+
+### Added
+- **Chinese (and other CJK) text now matches the way Chinese is actually written.** Han, kana and Hangul characters no longer block a match, so a bundled phrase is found in the middle of a normal sentence (`这是<词>啊`) instead of only when it sits alone between spaces. The Latin word-boundary rule used to treat every surrounding Han character as part of a longer word, which silently missed almost every real Chinese sentence.
+- **Separator-tolerant matching for CJK phrases.** A phrase of two or more characters is also matched when the writer separates its characters with spaces, symbols, emoji or zero-width characters (`坏 词`, `坏*词`, `坏​词`) — one of the most common ways to dodge Chinese filters. A match never bridges a clause boundary (`。`, `，`, `！`, `？`, `…`, a line break) and is dropped when the filler is longer than the phrase itself. New `SafeTextFilter.tolerateCjkSeparators` flag (default `true`) turns this off.
+- **Full-width characters are folded onto ASCII** during normalization, so text typed with a Chinese IME (`ｆ@ｃｋ`, `４`) goes through the same leet-speak path as Latin input.
+- Bundled entries stored with a space between their characters now also match the phrase as it is normally written, and `excludedWords` are folded the same way so an exclusion holds in both spellings.
+- **Word-list import.** Point the filter at a folder and every `*.txt` in it (`AAA.txt`, `BBB.txt`, `CCC.txt`, …) is blocked: `initFromWordLists('dist')` loads and initializes in one call, merging your folder with the bundled English list unless you pass `language`/`languages` or set `includeBundledWords: false`; `loadWordLists('dist')` only reads. Both accept a folder, a single file, a `dist/*.txt` pattern, or a list of sources and merge everything into a `WordListImport`: one entry per line, `#`/`//` comments, UTF-8 with or without a BOM, blanks ignored, duplicates dropped, per-file counts, and warnings that name a file and line number but never quote an entry. Feed the words to `init` through `additionalWords`, or use `includeBundledWords: false` to run on your own list alone. The parser is pure Dart, so `WordListImport.merge` also works on the web; only the file-system loader needs `dart:io` and sits behind a stub there.
+- `SafeTextFilter.init` accepts `additionalWords` and `includeBundledWords`.
+- `tool/check_word_lists.dart` prints counts and warnings for a folder of lists, without printing any entry.
+
+### Behavior changes
+- Single-character entries still require a real boundary on both sides. Letting them match loosely would flag every occurrence of that character inside longer words, so they match only when separated by space or punctuation.
+- `SafeTextFilter.normalizeText` also folds full-width ASCII forms.
+
+### Performance
+- Text without Han characters skips the separator pass entirely, so the Latin path costs one extra range check per character and nothing else.
+
 ## 3.1.0
 
 ### Fixed
